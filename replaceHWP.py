@@ -24,6 +24,7 @@ import re
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import datetime 
 import json 
+import time
 
 hwp = pyhwpx.Hwp()
 
@@ -45,7 +46,8 @@ try:
         r"C:\Users\USER\Desktop\gyeongji\0826\2021.pdf",
         r"C:\Users\USER\Desktop\gyeongji\0826\2022.pdf",
         r"C:\Users\USER\Desktop\gyeongji\0826\2023.pdf",
-        r"C:\Users\USER\Desktop\gyeongji\0826\2024.pdf"
+        r"C:\Users\USER\Desktop\gyeongji\0826\2024.pdf",
+        r"C:\Users\USER\Desktop\gyeongji\0826\2025.pdf"
     ]
 
     # --- 2. PDF 파일 업로드 ---
@@ -78,9 +80,9 @@ try:
     prompt_parts = [
         *uploaded_files,
         f"""
-        위에 제공된 PDF 파일 4개의 내용을 모두 참고해서 다음 작업을 수행해줘:
+        위에 제공된 PDF 파일 5개의 내용을 모두 참고해서 다음 작업을 수행해줘:
 
-        1. 먼저, 4개년 문서 전체에서 공통적으로 반복되는 **핵심 주제(테마)들을 찾아줘.** (예: 군정 기획 및 성과 관리, 재정 확보 및 운용, 적극 행정 및 주민 참여 등)
+        1. 먼저, 5개년 문서 전체에서 공통적으로 반복되는 **핵심 주제(테마)들을 찾아줘.** (예: 군정 기획 및 성과 관리, 재정 확보 및 운용, 적극 행정 및 주민 참여, 감사 및 공직 윤리 확립,정보통신 인프라 구축 및 관리, 디지털 역량 강화 및 포용, 군정 홍보 및 지역 이미지 제고, 법무·송무 및 규제 개선 등)
 
         2. 그 다음, 네가 직접 찾아낸 이 **핵심 주제들을 대제목으로 사용**해서, 대제목에 대한 주요 업무 추진계획을 종합적으로 정리해줘.
 
@@ -106,8 +108,9 @@ try:
     ]
 
     print("\nAI에게 답변 생성을 요청합니다...")
-    response = model.generate_content(prompt_parts, request_options={"timeout": 600}) # Timeout을 10분으로 설정
-
+    response = model.generate_content(prompt_parts, request_options={"timeout": 600})
+    # history = model.start_chat(history=[]) #추후 고도화 시 적용
+    
     # --- 4. AI 답변 파싱 및 HWPX에 순차 삽입 ---
     if response.parts:
         ai_text = response.text
@@ -115,6 +118,7 @@ try:
 
         # '## AAA' 등을 기준으로 텍스트를 분리
         sections = re.split(r'##\s*([A-Z]{3,})', ai_text)
+        print (sections)
         
         content_map = {}
         if len(sections) > 1:
@@ -128,9 +132,10 @@ try:
             # 전체 내용에서 첫 번째 줄(제목)만 추출
             title_only = full_content.split('\n')[0].strip()
 
-            hwp.MoveDocBegin() # 검색을 항상 문서 처음부터 시작
+            hwp.MoveDocBegin() 
             while hwp.find(marker):
                 hwp.insert_text(title_only)
+                time.sleep(0.1)
                 print(f"  - 성공: '{marker}' 위치에 제목 '{title_only}'을(를) 삽입했습니다.")
        
     else:
@@ -146,28 +151,30 @@ try:
     hwp.MoveDocBegin() 
     while (hwp.find('YYYD')):
         date = datetime.date.today()
-        years = str(date.year + 1)
+        years = str(date.year)
         hwp.insert_text(years)
 
 
     # 1. JSON 파일 경로 설정
-    json_path = r'C:\Users\USER\Desktop\gyeongji\0826\llm\LLM-based-document-writing-system\backend\models\test.json' 
+    json_path = r'C:\Users\USER\Desktop\llm\LLM-based-document-writing-system\test.json' 
 
     # 2. JSON 파일 불러오기 및 파싱
     if not os.path.exists(json_path):
         print(f"[오류] JSON 파일을 찾을 수 없습니다: {json_path}")
     else:
         with open(json_path, 'r', encoding='utf-8') as f:
-            # JSON 파일을 읽어 파이썬 딕셔너리 형태로 변환합니다.
             detail_data_map = json.load(f)
 
         # 3. HWPX 문서에 파싱된 내용 순차 삽입 (Replace)
         for main_marker, sub_items in detail_data_map.items():
             for sub_marker, content in sub_items.items():
-                hwp.MoveDocBegin() 
+                hwp.MoveDocBegin()
+                print(sub_marker) 
+                print(content) 
 
                 while hwp.find(sub_marker):
                     hwp.insert_text(content)
+                    time.sleep(0.1)
 
 
 
@@ -175,5 +182,5 @@ finally:
     # --- 5. 안전한 종료 ---
     # try 블록에서 오류가 발생하든 안 하든, 이 부분은 반드시 실행됩니다.
     print("\n프로그램을 안전하게 종료합니다...")
-    hwp.Save()
-    hwp.Quit()
+    # hwp.Save()
+    # hwp.Quit()

@@ -4,6 +4,7 @@ import re
 import datetime
 import json
 import traceback
+import time
 
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QProgressBar
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -12,9 +13,7 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import pyhwpx
 
-# -----------------------------------------------------------------------------
-# 기존 로직을 별도의 스레드(Thread)에서 실행하기 위한 클래스
-# -----------------------------------------------------------------------------
+
 class DocumentProcessor(QThread):
     # 시그널 정의: (메시지, 진행률) 형태로 GUI에 업데이트를 보냄
     progress_update = pyqtSignal(str, int)
@@ -45,7 +44,7 @@ class DocumentProcessor(QThread):
             # ==========================================================
             # 파트 1: AI 대제목 생성
             # ==========================================================
-            self.progress_update.emit("--- 파트 1: AI 대제목 생성 시작 ---", 10)
+            self.progress_update.emit("--- 대제목 생성 시작 ---", 10)
             
             # PDF 업로드
             uploaded_files = []
@@ -65,40 +64,40 @@ class DocumentProcessor(QThread):
             }) # 안전 설정
             prompt_parts = [
                 *uploaded_files,
-                        f"""
-                            위에 제공된 PDF 파일 4개의 내용을 모두 참고해서 다음 작업을 수행해줘:
+                f"""
+                위에 제공된 PDF 파일 5개의 내용을 모두 참고해서 다음 작업을 수행해줘:
 
-                            1. 먼저, 4개년 문서 전체에서 공통적으로 반복되는 **핵심 주제(테마)들을 찾아줘.** (예: 군정 기획 및 성과 관리, 재정 확보 및 운용, 적극 행정 및 주민 참여 등)
+                1. 먼저, 5개년 문서 전체에서 공통적으로 반복되는 **핵심 주제(테마)들을 찾아줘.** (예: 군정 기획 및 성과 관리, 재정 확보 및 운용, 적극 행정 및 주민 참여, 감사 및 공직 윤리 확립,정보통신 인프라 구축 및 관리, 디지털 역량 강화 및 포용, 군정 홍보 및 지역 이미지 제고, 법무·송무 및 규제 개선 등)
 
-                            2. 그 다음, 네가 직접 찾아낸 이 **핵심 주제들을 대제목으로 사용**해서, 대제목에 대한 주요 업무 추진계획을 종합적으로 정리해줘.
+                2. 그 다음, 네가 직접 찾아낸 이 **핵심 주제들을 대제목으로 사용**해서, 대제목에 대한 주요 업무 추진계획을 종합적으로 정리해줘.
 
-                            3. 각 대제목 앞에는 반드시 '## ' (더블샵 +대제목식별자+공백)을 붙여서 답변을 생성해줘. (예: ## 군정 기획 및 성과 관리)
+                3. 각 대제목 앞에는 반드시 '## ' (더블샵 +대제목식별자+공백)을 붙여서 답변을 생성해줘. (예: ## 군정 기획 및 성과 관리)
 
-                            4. 제목과 세부 내용은 반드시 줄바꿈으로 분리해줘.
+                4. 제목과 세부 내용은 반드시 줄바꿈으로 분리해줘.
 
-                            [출력 형식]
-                            답변은 반드시 아래와 같은 형식으로만 생성해줘. 각 항목 앞에는 '## ' (더블샵+공백)을 붙여야 해.
+                [출력 형식]
+                답변은 반드시 아래와 같은 형식으로만 생성해줘. 각 항목 앞에는 '## ' (더블샵+공백)을 붙여야 해.
 
-                            ## AAA [AI가 생성한 세부 제목]
-                            - 세부 내용 1
-                            - 세부 내용 2
+                ## AAA [AI가 생성한 세부 제목]
+                - 세부 내용 1
+                - 세부 내용 2
 
-                            ## BBB [AI가 생성한 세부 제목]
-                            - 세부 내용 1
-                            - 세부 내용 2
-                            ... 와 같이 계속
+                ## BBB [AI가 생성한 세부 제목]
+                - 세부 내용 1
+                - 세부 내용 2
+                ... 와 같이 계속
 
-                            [대제목 식별자 목록]
-                            AAA, BBB, CCC, DDD, EEE, FFF, GGG, HHH, III, JJJ, KKK, LLL, ... 같은 규칙으로 순차적으로 늘어나도록 
-                        """
+                [대제목 식별자 목록]
+                AAA, BBB, CCC, DDD, EEE, FFF, GGG, HHH, III, JJJ, KKK, LLL, ... 같은 규칙으로 순차적으로 늘어나도록 
+                """
             ]
-            self.progress_update.emit("AI에게 대제목 생성을 요청합니다...", 40)
+            self.progress_update.emit("대제목 생성을 요청...", 40)
             response = model.generate_content(prompt_parts, request_options={"timeout": 600})
 
             # AI 답변 파싱 및 대제목 삽입
             if response.parts:
                 ai_text = response.text
-                self.progress_update.emit("AI 대제목 생성 완료. 문서에 삽입을 시작합니다.", 50)
+                self.progress_update.emit("대제목 생성 완료. 문서에 삽입을 시작합니다.", 50)
                 sections = re.split(r'##\s*([A-Z]{3,})', ai_text)
 
                 content_map = {}
@@ -109,13 +108,15 @@ class DocumentProcessor(QThread):
                         content_map[marker] = full_content                
                 
 
-                for marker, title in content_map.items():
-                    hwp.MoveDocBegin()
-                    if hwp.find(marker):
-                        hwp.insert_text(title)
-                        self.progress_update.emit(f"'{marker}'에 제목 삽입 완료.", 60)
-            else:
-                self.progress_update.emit("[AI 오류] AI가 대제목을 생성하지 않았습니다.", 60)
+                for marker, full_content in content_map.items():
+                # 전체 내용에서 첫 번째 줄(제목)만 추출
+                    title_only = full_content.split('\n')[0].strip()
+        
+                    hwp.MoveDocBegin() 
+                    while hwp.find(marker):
+                        hwp.insert_text(title_only)
+                        time.sleep(0.1)
+                        print(f"  - 성공: '{marker}' 위치에 제목 '{title_only}'을(를) 삽입했습니다.")
 
             # ==========================================================
             # 파트 2: JSON 세부 내용 삽입
@@ -130,6 +131,7 @@ class DocumentProcessor(QThread):
                         hwp.MoveDocBegin()
                         if hwp.find(sub_marker):
                             hwp.insert_text(content)
+                            time.sleep(0.1)
                             self.progress_update.emit(f"'{sub_marker}'에 세부 내용 삽입 완료.", 80)
             else:
                  self.progress_update.emit(f"[오류] JSON 파일을 찾을 수 없습니다: {self.json_path}", 80)
@@ -138,16 +140,23 @@ class DocumentProcessor(QThread):
             # 파트 3: 연도 자동 변경
             # ==========================================================
             self.progress_update.emit("--- 파트 3: 연도 자동 변경 시작 ---", 90)
-            next_year = str(datetime.date.today().year + 1)
+            this_year = (datetime.date.today().year)
             
             hwp.MoveDocBegin()
-            while hwp.find('YYYY'): hwp.insert_text(next_year)
+            while hwp.find('YYYY'):
+                next_year = str(this_year + 1) 
+                hwp.insert_text(next_year)
+                time.sleep(0.1)
+
             hwp.MoveDocBegin()
-            while hwp.find('YYYD'): hwp.insert_text(next_year)
+            while hwp.find('YYYD'):
+                year = str(this_year) 
+                hwp.insert_text(year)
+                time.sleep(0.1)
             self.progress_update.emit("연도 자동 변경 완료.", 95)
             
             # --- 안전한 종료 ---
-            hwp.Save()
+            # hwp.Save()
             # hwp.Quit()
             self.finished.emit(f"모든 작업이 완료되었습니다!\n결과 파일: {self.hwp_path}")
 
@@ -213,15 +222,16 @@ class MyApp(QWidget):
         self.status_log.clear()
         self.progress_bar.setValue(0)
 
-        # 사용자 설정 (이 부분은 실제 환경에 맞게 수정해야 합니다)
+        # 사용자 설정 
         API_KEY = ""
         hwp_path = r'C:\Users\USER\Desktop\gyeongji\0826\template.hwp'
-        json_path = r'C:\Users\USER\Desktop\gyeongji\0826\llm\LLM-based-document-writing-system\backend\models\test.json'
+        json_path = r'C:\Users\USER\Desktop\llm\LLM-based-document-writing-system\test.json'
         pdf_files_paths = [
             r"C:\Users\USER\Desktop\gyeongji\0826\2021.pdf",
             r"C:\Users\USER\Desktop\gyeongji\0826\2022.pdf",
             r"C:\Users\USER\Desktop\gyeongji\0826\2023.pdf",
-            r"C:\Users\USER\Desktop\gyeongji\0826\2024.pdf"
+            r"C:\Users\USER\Desktop\gyeongji\0826\2024.pdf",
+            r"C:\Users\USER\Desktop\gyeongji\0826\2025.pdf"
         ]
 
 
