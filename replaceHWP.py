@@ -75,7 +75,7 @@ try:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         }
     )
-# '{prompt_keyword}'
+    # '{prompt_keyword}'
     # AI가 답변을 파싱하기 좋은 형태로 생성하도록 요청 프롬프트를 구체화
     prompt_parts = [
         *uploaded_files,
@@ -109,7 +109,7 @@ try:
 
     print("\nAI에게 답변 생성을 요청합니다...")
     response = model.generate_content(prompt_parts, request_options={"timeout": 600})
-    # history = model.start_chat(history=[]) #추후 고도화 시 적용
+    history = model.start_chat(history=[]) 
     
     # --- 4. AI 답변 파싱 및 HWPX에 순차 삽입 ---
     if response.parts:
