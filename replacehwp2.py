@@ -136,6 +136,19 @@ try:
             print("일반 텍스트로 처리합니다.")
             process_ai_response(ai_text, question_num)
 
+    # --- 날짜 처리  ---
+    hwp.MoveDocBegin() 
+    while (hwp.find('YEAR')):
+        date = datetime.date.today()
+        years = str(date.year + 1)
+        hwp.insert_text(years)
+
+    hwp.MoveDocBegin() 
+    while (hwp.find('YDDY')):
+        date = datetime.date.today()
+        years = str(date.year)
+        hwp.insert_text(years)
+
     # --- 4-1. 첫 번째 질문 및 AI 요청 ---
     prompt_keyword = input("첫 번째 키워드 입력: ")
 
@@ -153,7 +166,7 @@ try:
         """
     ]
 
-    print("\n첫 번째 질문: AI에게 답변 생성을 요청합니다...")
+    print("\nAI에게 답변 생성을 요청...")
     first_response = chat.send_message(first_prompt_parts, request_options={"timeout": 600})
     
     # 첫 번째 답변 처리
@@ -179,9 +192,9 @@ try:
             2. 이전 대제목의 자식 식별자(AA1, AA2, BB1, BB2...)를 사용해줘.
             3. **반드시 순수한 JSON 형태로만 출력해줘** (다른 설명 없이)
             4. 이전 질문의 대제목을 잘 확인해서 연결해줘 AAA = AA1~AA6 파트 , BBB = BB1~BB6, ... 확인좀
-            5. YOU MUST MAINTAIN THAT I PROVIDED JSON FORMAT TITLE
+            5. YOU MUST MAINTAIN THAT I PROVIDED 'json'
             6. You should only make as many as you can with a main title
-
+            - 아래 [JSON 출력 형식]을 완벽하게 따라줘.
             
             새로운 키워드: '{second_keyword}'
 
@@ -224,13 +237,31 @@ try:
                 "FF4": "소제목 내용",
                 "FF5": "추진배경 내용",
                 "FF6": "추진방향 내용",
-                 .. 와 같은 형식으로 유지해줘
+                "GG1": "한줄요약 내용",
+                "GG2": "성과목표 내용",
+                "GG3": "성과목표 내용",
+                "GG4": "소제목 내용",
+                "GG5": "추진배경 내용",
+                "GG6": "추진방향 내용",
+                "HH1": "한줄요약 내용",
+                "HH2": "성과목표 내용",
+                "HH3": "성과목표 내용",
+                "HH4": "소제목 내용",
+                "HH5": "추진배경 내용",
+                "HH6": "추진방향 내용",
+                "II1": "한줄요약 내용",
+                "II2": "성과목표 내용",
+                "II3": "성과목표 내용",
+                "II4": "소제목 내용",
+                "II5": "추진배경 내용",
+                "II6": "추진방향 내용",
+                 
             }}
-            ```
-            """
+            ``` 이형식 잘 유지해줘
+            """ 
         ]
 
-        print("\n두 번째 질문: AI에게 JSON 답변 생성을 요청합니다...")
+        print("\nAI에게 답변 생성을 요청합니다...")
         second_response = chat.send_message(second_prompt, request_options={"timeout": 600})
         
         # 두 번째 답변을 JSON으로 처리
@@ -243,43 +274,124 @@ try:
     else:
         print("")
 
-    # --- 5. 날짜 처리 (기존 코드) ---
-    hwp.MoveDocBegin() 
-    while (hwp.find('YYDY')):
-        date = datetime.date.today()
-        years = str(date.year + 1)
-        hwp.insert_text(years)
+    # --- 4-3. 세 번째 질문: 2025년 주요 성과 정리 (JSON) ---
+    print("\n" + "="*50)
+    
+    # 세 번째 질문을 위한 프롬프트
+    third_prompt = [
+        *uploaded_files,
+        f"""
+        지금까지의 PDF 내용을 종합해서, **2025년의 주요 성과**를 정리해줘.
+        
+        [출력 형식]
+        - 답변은 반드시 순수한 JSON 형태로만 출력해줘 (다른 설명 없이).
+        - 각 성과 형식은 'JSON 출력 예시'의 형식에 있는 식별자를 사용해줘 (AC1, AC2, AC3...).
+        - 아래 [JSON 출력 예시]을 완벽하게 따라줘.
+        - 음슴체로 해줘 합니다. 말고 그냥 제공이면 제공. 확립이면 확립
+        - 'CC'식별자는 만들지마
 
-    hwp.MoveDocBegin() 
-    while (hwp.find('YYYD')):
-        date = datetime.date.today()
-        years = str(date.year)
-        hwp.insert_text(years)
+        [JSON 출력 예시]
+        ```json
+        {{
+            "AC1": "1번째 주요 성과 내용 제목",
+            "AC2": "1번째 주요 성과 내용 요약",
+            "AC3": "2번째 주요 성과 내용 제목"
+            "AC4": "2번째 주요 성과 내용 요약"
+            "AC5": "3번째 주요 성과 내용 제목",
+            "AC6": "3번째 주요 성과 내용 요약",
+            "AC7": "4번째 주요 성과 내용 제목"
+            "AC8": "4번째 주요 성과 내용 요약"
+            "AC9": "5번째 주요 성과 내용 제목",
+            "BC1": "5번째 주요 성과 내용 요약",
+            "BC2": "6번째 주요 성과 내용 제목"
+            "BC3": "6번째 주요 성과 내용 요약"
+            "BC4": "7번째 주요 성과 내용 제목"
+            "BC5": "7번째 주요 성과 내용 요약"
+            "BC6": "8번째 주요 성과 내용 제목"
+            "BC7": "8번째 주요 성과 내용 요약"
+            "BC8": "9번째 주요 성과 내용 제목"
+            "BC9": "9번째 주요 성과 내용 요약"
+            "DC1": "10번째 주요 성과 내용 제목"
+            "DC2": "10번째 주요 성과 내용 요약"
+            "DC3": "11번째 주요 성과 내용 제목"
+            "DC4": "11번째 주요 성과 내용 요약"
+            "DC5": "12번째 주요 성과 내용 제목"
+            "DC6": "12번째 주요 성과 내용 요약"
+            "DC7": "13번째 주요 성과 내용 제목"
+            "DC8": "13번째 주요 성과 내용 요약"
+        }} 이형식 잘 유지해줘
+        ```
+        """
+    ]
 
-    # --- 6. 기존 JSON 파일 처리 (선택사항) ---
-    json_path = r'C:\Users\USER\Desktop\llm\LLM-based-document-writing-system\test.json' 
-
-    if os.path.exists(json_path):
-        print(f"\n기존 JSON 파일도 처리합니다: {json_path}")
-        with open(json_path, 'r', encoding='utf-8') as f:
-            detail_data_map = json.load(f)
-
-        # HWPX 문서에 파싱된 내용 순차 삽입 (Replace)
-        print("기존 JSON 데이터를 HWPX에 삽입합니다...")
-        for main_marker, sub_items in detail_data_map.items():
-            print(sub_items + "dddddddddddddddddd")
-            for sub_marker, content in sub_items.items():
-                hwp.MoveDocBegin()
-                print(f"  - 처리 중: {sub_marker}")
-
-                while hwp.find(sub_marker):
-                    hwp.insert_text(content)
-                    time.sleep(0.1)
+    third_response = chat.send_message(third_prompt, request_options={"timeout": 600})
+    
+    # 세 번째 답변을 JSON으로 처리
+    if third_response.parts:
+        process_json_response(third_response.text, 3)
     else:
-        print(f"기존 JSON 파일이 없습니다: {json_path}")
+        print("\n[오류] 질문에 AI가 답변하지 않았습니다.")
+        print("차단 피드백:", third_response.prompt_feedback)
+
+        # --- 4-3. 세 번째 질문: 2025년 주요 성과 정리 (JSON) ---
+    print("\n" + "="*50)
+    
+    # 4번째 질문을 위한 프롬프트
+    fourth_prompt = [
+        *uploaded_files,
+        f"""
+        지금까지의 PDF 내용을 종합해서, 2026년도 특수시책이랑 핵심과제를 적어줘
+        
+        [출력 형식]
+        - 답변은 반드시 순수한 JSON 형태로만 출력해줘 (다른 설명 없이).
+        - 각 성과 형식은 'JSON 출력 예시'의 형식에 있는 식별자를 사용해줘 (AC1, AC2, AC3...).
+        - 아래 [JSON 출력 예시]을 완벽하게 따라줘.
+        - 음슴체로 해줘 합니다. 말고 그냥 제공이면 제공. 확립이면 확립
+
+        [JSON 출력 예시]
+        ```json
+        {{
+            "J1": "1번째 핵심과제 제목",
+            "J2": "2번째 핵심과제 제목",
+            "H1": "1번째 특수시책 제목"
+        }} 이형식 잘 유지해줘
+        ```
+        """
+    ]
+
+    fourth_response = chat.send_message(fourth_prompt, request_options={"timeout": 600})
+    
+    # 세 번째 답변을 JSON으로 처리
+    if fourth_response.parts:
+        process_json_response(fourth_response.text, 3)
+    else:
+        print("\n[오류] 세 번째 질문에 AI가 답변하지 않았습니다.")
+        print("차단 피드백:", fourth_response.prompt_feedback)
+
+
+
+    # # --- 6. 기존 JSON 파일 처리 (선택사항) ---
+    # json_path = r'C:\Users\USER\Desktop\llm\LLM-based-document-writing-system\test.json' 
+
+    # if os.path.exists(json_path):
+    #     print(f"\n기존 JSON 파일도 처리합니다: {json_path}")
+    #     with open(json_path, 'r', encoding='utf-8') as f:
+    #         detail_data_map = json.load(f)
+
+    #     # HWPX 문서에 파싱된 내용 순차 삽입 (Replace)
+    #     print("기존 JSON 데이터를 HWPX에 삽입합니다...")
+    #     for main_marker, sub_items in detail_data_map.items():
+    #         for sub_marker, content in sub_items.items():
+    #             hwp.MoveDocBegin()
+    #             print(f"  - 처리 중: {sub_marker}")
+
+    #             while hwp.find(sub_marker):
+    #                 hwp.insert_text(content)
+    #                 time.sleep(0.1)
+    # else:
+    #     print(f"기존 JSON 파일이 없습니다: {json_path}")
 
 finally:
     # --- 7. 안전한 종료 ---
     print("\n프로그램을 안전하게 종료합니다...")
-    # hwp.Save()
-    # hwp.Quit()
+    hwp.save_as("output")
