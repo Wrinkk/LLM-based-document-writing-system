@@ -9,85 +9,6 @@ import time
 
 hwp = pyhwpx.Hwp()
 
-
-def process_ai_response(ai_text, question_num):
-        """AI 답변을 파싱하고 HWPX에 삽입하는 함수"""
-        print(f"\n--- {question_num}번째 질문 AI 생성 답변 ---\n", ai_text)
-
-        # '## AAA' 등을 기준으로 텍스트를 분리
-        sections = re.split(r'##\s*([A-Z]{3,})', ai_text)
-        print(f"{question_num}번째 질문 파싱 결과:", sections)
-        
-        content_map = {}
-        if len(sections) > 1:
-            for i in range(1, len(sections), 2):
-                marker = sections[i].strip()
-                full_content = sections[i+1].strip()
-                content_map[marker] = full_content
-
-        print(f"\nHWPX 파일에 {question_num}번째 질문 파싱된 답변을 삽입합니다...")
-        for marker, full_content in content_map.items():
-            # 전체 내용에서 첫 번째 줄(제목)만 추출
-            title_only = full_content.split('\n')[0].strip()
-
-            hwp.MoveDocBegin() 
-            while hwp.find(marker):
-                hwp.insert_text(title_only)
-                time.sleep(0.1)
-                print(f"  - 성공: '{marker}' 위치에 제목 '{title_only}'을(를) 삽입했습니다.")
-
-def extract_json_from_text(text):
-        """텍스트에서 JSON 부분만 추출하는 함수"""
-        # JSON 코드 블록에서 추출 시도
-        json_match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
-        if json_match:
-            return json_match.group(1)
-        
-        # 일반적인 중괄호로 둘러싸인 JSON 추출 시도
-        json_match = re.search(r'\{.*\}', text, re.DOTALL)
-        if json_match:
-            return json_match.group(0)
-        
-        return None
-
-def process_json_response(ai_text, question_num):
-        """JSON 형태의 AI 답변을 파싱하고 HWPX에 삽입하는 함수"""
-        print(f"\n--- {question_num}번째 질문 AI JSON 답변 처리 ---")
-        
-        # JSON 추출
-        json_text = extract_json_from_text(ai_text)
-        if not json_text:
-            print("JSON 형태를 찾을 수 없습니다. 일반 텍스트로 처리합니다.")
-            process_ai_response(ai_text, question_num)
-            return
-        
-        try:
-            # JSON 파싱
-            json_data = json.loads(json_text)
-            print(f"JSON 파싱 성공: {len(json_data)}개 항목")
-            
-            # JSON 데이터를 파일로 저장
-            json_save_path = r'C:\Users\USER\Desktop\llm\LLM-based-document-writing-system\ai_response.json'
-            with open(json_save_path, 'w', encoding='utf-8') as f:
-                json.dump(json_data, f, ensure_ascii=False, indent=2)
-            print(f"JSON 데이터를 파일로 저장: {json_save_path}")
-            
-            # HWPX에 JSON 데이터 삽입
-            print(f"\nHWPX 파일에 JSON 데이터를 삽입합니다...")
-            for marker, content in json_data.items():
-                hwp.MoveDocBegin()
-                print(f"  - 처리 중: {marker}")
-                
-                while hwp.find(marker):
-                    hwp.insert_text(content)
-                    time.sleep(0.1)
-                    print(f"  - 성공: '{marker}' 위치에 '{content}'을(를) 삽입했습니다.")
-                    
-        except json.JSONDecodeError as e:
-            print(f"JSON 파싱 오류: {e}")
-            print("일반 텍스트로 처리합니다.")
-            process_ai_response(ai_text, question_num)
-
 try:
 
     # [사용자 설정 1] 작업할 HWPX 템플릿 파일 경로
@@ -98,7 +19,7 @@ try:
     hwp.Open(hwp_path)
 
     # [사용자 설정 2] 본인의 Gemini API 키 입력
-    API_KEY = "AIzaSyDz5V-imSFlRcC8dfNI_fmQpmEXOotMxX0" 
+    API_KEY = "" 
     genai.configure(api_key=API_KEY)
 
     # [사용자 설정 3] AI가 참고할 PDF 파일들의 경로
@@ -136,7 +57,84 @@ try:
     
     # 채팅 세션 시작 (대화 히스토리 유지를 위해)
     chat = model.start_chat(history=[])
-    
+
+    def process_ai_response(ai_text, question_num):
+        """AI 답변을 파싱하고 HWPX에 삽입하는 함수"""
+        print(f"\n--- {question_num}번째 질문 AI 생성 답변 ---\n", ai_text)
+
+        # '## AAA' 등을 기준으로 텍스트를 분리
+        sections = re.split(r'##\s*([A-Z]{3,})', ai_text)
+        print(f"{question_num}번째 질문 파싱 결과:", sections)
+        
+        content_map = {}
+        if len(sections) > 1:
+            for i in range(1, len(sections), 2):
+                marker = sections[i].strip()
+                full_content = sections[i+1].strip()
+                content_map[marker] = full_content
+
+        print(f"\nHWPX 파일에 {question_num}번째 질문 파싱된 답변을 삽입합니다...")
+        for marker, full_content in content_map.items():
+            # 전체 내용에서 첫 번째 줄(제목)만 추출
+            title_only = full_content.split('\n')[0].strip()
+
+            hwp.MoveDocBegin() 
+            while hwp.find(marker):
+                hwp.insert_text(title_only)
+                time.sleep(0.1)
+                print(f"  - 성공: '{marker}' 위치에 제목 '{title_only}'을(를) 삽입했습니다.")
+
+    def extract_json_from_text(text):
+        """텍스트에서 JSON 부분만 추출하는 함수"""
+        # JSON 코드 블록에서 추출 시도
+        json_match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+        if json_match:
+            return json_match.group(1)
+        
+        # 일반적인 중괄호로 둘러싸인 JSON 추출 시도
+        json_match = re.search(r'\{.*\}', text, re.DOTALL)
+        if json_match:
+            return json_match.group(0)
+        
+        return None
+
+    def process_json_response(ai_text, question_num):
+        """JSON 형태의 AI 답변을 파싱하고 HWPX에 삽입하는 함수"""
+        print(f"\n--- {question_num}번째 질문 AI JSON 답변 처리 ---")
+        
+        # JSON 추출
+        json_text = extract_json_from_text(ai_text)
+        if not json_text:
+            print("JSON 형태를 찾을 수 없습니다. 일반 텍스트로 처리합니다.")
+            process_ai_response(ai_text, question_num)
+            return
+        
+        try:
+            # JSON 파싱
+            json_data = json.loads(json_text)
+            print(f"JSON 파싱 성공: {len(json_data)}개 항목")
+            
+            # JSON 데이터를 파일로 저장
+            json_save_path = r'C:\Users\USER\Desktop\llm\LLM-based-document-writing-system\ai_response.json'
+            with open(json_save_path, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, ensure_ascii=False, indent=2)
+            print(f"JSON 데이터를 파일로 저장: {json_save_path}")
+            
+            # HWPX에 JSON 데이터 삽입
+            print(f"\nHWPX 파일에 JSON 데이터를 삽입합니다...")
+            for marker, content in json_data.items():
+                hwp.MoveDocBegin()
+                print(f"  - 처리 중: {marker}")
+                
+                while hwp.find(marker):
+                    hwp.insert_text(content)
+                    time.sleep(0.1)
+                    print(f"  - 성공: '{marker}' 위치에 '{content}'을(를) 삽입했습니다.")
+                    
+        except json.JSONDecodeError as e:
+            print(f"JSON 파싱 오류: {e}")
+            print("일반 텍스트로 처리합니다.")
+            process_ai_response(ai_text, question_num)
 
     # --- 날짜 처리  ---
     hwp.MoveDocBegin() 
