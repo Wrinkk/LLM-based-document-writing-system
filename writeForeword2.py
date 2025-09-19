@@ -116,7 +116,7 @@ try:
     os.makedirs(output_dir, exist_ok=True)
     
     # [사용자 설정 2] 본인의 Gemini API 키 입력
-    API_KEY = "AIzaSyDz5V-imSFlRcC8dfNI_fmQpmEXOotMxX0"  # 여기에 실제 API 키를 입력하세요
+    API_KEY = ""  # 여기에 실제 API 키를 입력하세요
     
     genai.configure(api_key=API_KEY)
 
