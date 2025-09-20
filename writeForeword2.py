@@ -4,19 +4,19 @@ import os
 import re
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import datetime
-import json
 import time
 import PyPDF2
-from io import StringIO
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import string
 
 def combine_pdf_texts(pdf_files_paths):
     """여러 PDF 파일의 텍스트를 효율적으로 합치는 함수 (추출과 정제를 한 번에 처리)"""
+
     combined_text = ""
     
-    print("PDF 파일에서 텍스트 추출 및 정제를 시작합니다...")
     for file_path in pdf_files_paths:
         if not os.path.exists(file_path):
-            print(f"  - 파일 찾을 수 없음: '{os.path.basename(file_path)}'")
+            print(f"  - 경고: '{os.path.basename(file_path)}' 파일을 찾을 수 없어 건너뜁니다.")
             continue
 
         print(f"  - 처리 중: {os.path.basename(file_path)}")
@@ -29,316 +29,484 @@ def combine_pdf_texts(pdf_files_paths):
                         raw_text += page.extract_text() + "\n"
                 
                 if not raw_text.strip():
-                    print(f"  - 경고: '{os.path.basename(file_path)}'에서 텍스트를 추출 불가")
+                    print(f"  - 경고: '{os.path.basename(file_path)}'에서 텍스트를 추출할 수 없습니다.")
                     continue
 
-                cleaned_text = re.sub(r'[^가-힣A-Za-z0-9\s\.,\?!()\[\]{}:;\'"""''·]', '', raw_text)
+                # 정제 과정 개선: 필요한 특수문자 유지
+                cleaned_text = re.sub(r'[^\w\s가-힣.,!?;:\'"""''·()\[\]{} -]', ' ', raw_text)
+                cleaned_text = re.sub(r'\s+', ' ', cleaned_text)  # 중복 공백 제거
                 
                 combined_text += f"\n\n=== {os.path.basename(file_path)}의 내용 ===\n"
                 combined_text += cleaned_text
-                print(f"  - 완료: {len(cleaned_text)} 문자")
+                print(f"  - 완료: {len(cleaned_text):,} 문자")
 
         except Exception as e:
             print(f"  - 오류: '{os.path.basename(file_path)}' 처리 중 오류 발생: {e}")
             
-    print(f"\n통합 및 정제된 텍스트 총 길이: {len(combined_text)} 문자")
+    print(f"\n통합 및 정제된 텍스트 총 길이: {len(combined_text):,} 문자")
     return combined_text
 
-def wait_for_file_processing(uploaded_files):
+def wait_for_file_processing(uploaded_files, max_wait_time=300):
     """업로드된 파일들의 처리 완료를 대기하는 함수"""
-    print("\n업로드된 파일들의 처리 완료를 대기 중...")
+
     for file in uploaded_files:
+        start_time = time.time()
         while file.state.name == "PROCESSING":
-            print(f"  - {file.display_name} 처리 중... 10초 대기")
+            elapsed = time.time() - start_time
+            if elapsed > max_wait_time:
+                print(f"  - {file.display_name} 처리 시간 초과")
+                break
+            
+            print(f"  - {file.display_name} 처리 중... 10초 대기 (경과: {elapsed:.0f}초)")
             time.sleep(10)
             file = genai.get_file(file.name)
         
         if file.state.name == "FAILED":
-            raise ValueError(f"파일 처리 실패: {file.display_name}")
-        
-        print(f"  - {file.display_name} 처리 완료")
+            print(f"  - 경고: {file.display_name} 처리 실패")
+            continue
+        elif file.state.name == "ACTIVE":
+            print(f"  - {file.display_name} 처리 완료")
+
+def upload_file_concurrently(file_path):
+        """단일 파일을 Gemini API에 업로드하고 결과를 반환하는 함수 (스레드에서 실행)"""
+
+        if not os.path.exists(file_path):
+            print(f"  - 경고: '{os.path.basename(file_path)}' 파일을 찾을 수 없어 건너뜁니다.")
+            return None
+
+        file_size = os.path.getsize(file_path)
+        if file_size > 200 * 1024 * 1024:  # 200MB
+            print(f"  - 경고: '{os.path.basename(file_path)}' 파일 크기가 200MB를 초과하여 건너뜁니다.")
+            return None
+
+        print(f"  - 업로드 시작: {os.path.basename(file_path)}")
+        try:
+            file_response = genai.upload_file(path=file_path)
+            print(f"  - 업로드 완료: {file_response.display_name}")
+            return file_response
+        except Exception as e:
+            print(f"  - 업로드 실패: {os.path.basename(file_path)} - {e}")
+            return None
 
 def create_hwp_document_with_foreword(template_path, foreword_text, output_path, version_num):
     """발간사가 포함된 한글 문서를 생성하는 함수"""
+
+    hwp = None
     try:
-        hwp = pyhwpx.Hwp(visible=False) 
+        hwp = pyhwpx.Hwp(visible=False)
         
         # 템플릿 파일 열기
         if os.path.exists(template_path):
             hwp.Open(template_path)
+            print(f"템플릿 파일 열기: {os.path.basename(template_path)}")
         else:
             # 새 문서 생성
             hwp.XHwpDocuments.Add()
+            print("새 문서 생성")
         
         # 문서 시작으로 이동
         hwp.MoveDocBegin()
         
-        # 발간사 제목 삽입
-        hwp.HAction.GetDefault("InsertText", hwp.HParameterSet.HInsertText.HSet)
-        hwp.HParameterSet.HInsertText.Text = f"발간사 (버전 {version_num})\n\n"
-        hwp.HAction.Execute("InsertText", hwp.HParameterSet.HInsertText.HSet)
+        sections = re.split(r'##\s*([A-Z]{2,})', foreword_text)
+        print(f"{version_num}번째 질문 파싱 결과:", sections)
         
-        # 발간사 내용 삽입
-        hwp.HAction.GetDefault("InsertText", hwp.HParameterSet.HInsertText.HSet)
-        hwp.HParameterSet.HInsertText.Text = foreword_text
-        hwp.HAction.Execute("InsertText", hwp.HParameterSet.HInsertText.HSet)
+        content_map = {}
+        if len(sections) > 1:
+            for i in range(1, len(sections), 2):
+                marker = sections[i].strip()
+                full_content = sections[i+1].strip()
+                content_map[marker] = full_content
+
+        print(f"\nHWPX 파일에 {version_num}번째 질문 파싱된 답변을 삽입합니다...")
+        for marker, full_content in content_map.items():
+            # 전체 내용에서 첫 번째 줄(제목)만 추출
+            title_only = full_content.split('\n')[0].strip()
+
+            print(f"    마커: '{marker}' -> 제목: '{title_only}'")
+
+            hwp.MoveDocBegin() 
+            while hwp.find(marker,direction='AllDoc'):
+
+                hwp.insert_text(title_only)
+                time.sleep(0.1)
+                print(f"  - 성공: '{marker}' 위치에 제목 '{title_only}'을(를) 삽입했습니다.")
+
+                # 문서에 남아있을 수 있는 미사용 파싱 마커 (예: ##CC, ##DD 등)를 모두 찾아 삭제합니다.
+        print("\n    최종 문서에서 잔여 파싱 마커를 제거합니다...")
+        hwp.MoveDocBegin() # 문서 시작으로 이동
         
-        # 'TEST' 텍스트가 있으면 발간사로 교체
-        hwp.MoveDocBegin()
-        while hwp.find('TEST'):
-            hwp.HAction.GetDefault("InsertText", hwp.HParameterSet.HInsertText.HSet)
-            hwp.HParameterSet.HInsertText.Text = foreword_text
-            hwp.HAction.Execute("InsertText", hwp.HParameterSet.HInsertText.HSet)
+        # 한/글의 '찾아 바꾸기' 기능을 정규식 모드로 실행
+        possible_markers = [f"##{char}{char}" for char in string.ascii_uppercase]
+
+        for marker in possible_markers:
+            # hwp.Find는 찾으면 True, 못 찾으면 False를 반환합니다.
+            # 문서 전체를 계속 반복하며 해당 마커가 더 이상 없을 때까지 찾아서 지웁니다.
+            while hwp.find(marker, direction='AllDoc'):
+                # 찾은 마커를 빈 문자열로 대체 (삭제)
+                hwp.insert_text("")
         
         # 파일 저장
         hwp.SaveAs(output_path)
-        hwp.Quit()
         
         return True, f"성공적으로 저장됨: {output_path}"
         
     except Exception as e:
-        try:
-            hwp.Quit()
-        except:
-            pass
         return False, f"오류 발생: {e}"
+    finally:
+        if hwp:
+            try:
+                hwp.Quit()
+            except:
+                pass
 
-# 전역 변수
-hwp = None
-uploaded_files = []
-
-try:
-    # [사용자 설정 1] 작업할 HWPX 템플릿 파일 경로
-    hwp_path = r'C:\Users\USER\Desktop\gyeongji\0826\template.hwp'
+def main():
+    """메인 실행 함수"""
+    # 전역 변수
+    uploaded_files = []
     
-    # 결과 파일들을 저장할 디렉토리 생성
-    output_dir = os.path.join(os.path.dirname(hwp_path), "발간사_결과")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # [사용자 설정 2] 본인의 Gemini API 키 입력
-    API_KEY = ""  # 여기에 실제 API 키를 입력하세요
-    
-    genai.configure(api_key=API_KEY)
-
-    # 텍스트를 추출할 PDF 파일 목록
-    text_extract_paths = [
-        r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 1분기).pdf",
-        r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 2분기)_압.pdf",
-        r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 3분기).pdf",
-    ]
-
-    # 파일 채로 AI에 업로드할 PDF 파일 목록
-    file_upload_paths = [
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(건설과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(경제교통과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(기획예산실)(9.8. 수정).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(농기계임대사업소).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(농업기술센터)(수정).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(농정과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(도시새마을과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(맑은물사업소).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(문화관광과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(민원과)(9.8. 수정).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(보건소).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(복지정책과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(사회복지과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(산림과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(수소국가산업추진단).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(안전재난과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(왕피천공원사업소).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(울진군의료원).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(원전에너지과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(인구정책과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(재무과)(9.8. 수정).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(정책홍보실)(9.11. 수정).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(체육진흥과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(총무과)(9.8. 수정).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(해양수산과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(환경위생과).pdf",
-        r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(환동해산업연구원).pdf"
-    ]
-
-    # --- 1. 텍스트 추출 그룹 처리 ---
-    combined_pdf_text = ""
-    if text_extract_paths:
-        combined_pdf_text = combine_pdf_texts(text_extract_paths)
-
-    # --- 2. 파일 업로드 그룹 처리 ---
-    if file_upload_paths:
-        print("\nPDF 파일을 AI에 직접 업로드합니다...")
-        for file_path in file_upload_paths:
-            if os.path.exists(file_path):
-                print(f"  - 업로드 중: {os.path.basename(file_path)}")
-                try:
-                    file_size = os.path.getsize(file_path)
-                    if file_size > 200 * 1024 * 1024:  # 200MB
-                        print(f"  - 경고: '{os.path.basename(file_path)}'가 200MB를 초과하여 건너뜁니다.")
-                        continue
-                    
-                    file_response = genai.upload_file(path=file_path)
-                    uploaded_files.append(file_response)
-                    print(f"  - 업로드 완료: {file_response.display_name}")
-                except Exception as e:
-                    print(f"  - 업로드 실패: {os.path.basename(file_path)} - {e}")
-            else:
-                print(f"  - 경고: '{file_path}' 파일을 찾을 수 없어 건너뜁니다.")
-        
-        if uploaded_files:
-            wait_for_file_processing(uploaded_files)
-            print("파일 업로드가 완료되었습니다.")
-        else:
-            print("업로드된 파일이 없습니다.")
-
-    # --- 3. 모델 초기화 ---
     try:
-        model = genai.GenerativeModel(
-            'gemini-2.5-flash',
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
-        )
-    except Exception as e:
-        print(f"모델 초기화 실패: {e}")
-        model = genai.GenerativeModel('gemini-1.5-flash')
-
-    year = datetime.datetime.now().year
-    quarter = ((datetime.datetime.now().month - 1) // 3 + 1 ) + 1
-
-    # --- 4. 5개의 다른 발간사 생성 ---
-    foreword_variations = [
-        {
-            "focus": "경제 발전 중심",
-            "tone": "역동적이고 진취적인 어조",
-            "emphasis": "울진군의 미래 성장 동력과 경제 발전 전략"
-        },
-        {
-            "focus": "군민 화합 중심", 
-            "tone": "따뜻하고 포용적인 어조",
-            "emphasis": "군민과의 소통과 협력, 상생의 가치"
-        },
-        {
-            "focus": "희망과 비전 중심",
-            "tone": "미래지향적이고 희망찬 어조", 
-            "emphasis": "울진군의 밝은 미래와 지속가능한 발전"
-        },
-        {
-            "focus": "균형적 접근",
-            "tone": "안정적이고 신뢰감 있는 어조",
-            "emphasis": "경제, 화합, 희망이 균형잡힌 종합적 관점"
-        },
-        {
-            "focus": "혁신과 변화 중심",
-            "tone": "혁신적이고 도전적인 어조",
-            "emphasis": "새로운 변화와 혁신을 통한 울진군의 도약"
-        }
-    ]
-
-    print(f"\n=== 5개의 발간사 버전을 생성합니다 ===")
-    
-    generated_forewords = []
-    
-    for i, variation in enumerate(foreword_variations, 1):
-        print(f"\n--- {i}번째 발간사 생성 중 ({variation['focus']}) ---")
+        # ===== 사용자 설정 섹션 =====
+        # [사용자 설정 1] 템플릿 파일들 경로 설정
+        template_base_dir = r'C:\Users\USER\Desktop\gyeongji\0919'
+        template_paths = [
+            os.path.join(template_base_dir, f"template{i}.hwpx") for i in range(1, 6)
+        ]
         
-        # 프롬프트 구성
-        first_prompt_parts = []
+        # [사용자 설정 2] 본인의 Gemini API 키 입력
+        API_KEY = ""  # 여기에 실제 API 키를 입력하세요
         
-        if uploaded_files:
-            first_prompt_parts.extend(uploaded_files)
+        if not API_KEY:
+            raise ValueError("API 키를 입력해주세요. API_KEY 변수에 실제 키를 설정하세요.")
         
-        if combined_pdf_text:
-            first_prompt_parts.append(f"다음은 추출된 텍스트 내용입니다:\n{combined_pdf_text}")
+        # ===== 초기 설정 및 검증 =====
+        print("=" * 60)
+        print("울진군 발간사 생성 프로그램 시작")
+        print("=" * 60)
         
-        prompt_text = f"""
-            업로드된 PDF 파일들을 모두 종합적으로 참고해서 다음 요구사항에 맞는 '{year}년도 {quarter}분기 발간사'를 작성해줘:
+        # 템플릿 파일들 존재 확인
+        print("\n템플릿 파일들을 확인합니다...")
+        available_templates = []
+        for i, template_path in enumerate(template_paths, 1):
+            if os.path.exists(template_path):
+                print(f"  ✓ template{i}.hwp 파일 존재")
+                available_templates.append(template_path)
+            else:
+                print(f"  ✗ template{i}.hwp 파일 없음: {template_path}")
+        
+        if not available_templates:
+            print("경고: 사용 가능한 템플릿이 없습니다. 새 문서로 생성합니다.")
+        
+        # 결과 파일들을 저장할 디렉토리 생성
+        output_dir = os.path.join(template_base_dir, f"발간사_결과_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"\n결과 저장 경로: {output_dir}")
+        
+        genai.configure(api_key=API_KEY)
 
-            **이번 버전의 특별 요구사항:**
-            - 주요 초점: {variation['focus']}
-            - 어조: {variation['tone']}
-            - 강조점: {variation['emphasis']}
+        # ===== PDF 파일 경로 설정 =====
+        # 텍스트를 추출할 PDF 파일 목록
+        text_extract_paths = [
+            r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 1분기).pdf",
+            r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 2분기)_압.pdf",
+            r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 3분기).pdf",
+        ]
 
-            **공통 요구사항:**
-            1. '경제', '화합', '희망'을 핵심 주제로 포함해서 작성해줘.
-            2. 경제 부분에는 울진군의 지속가능한 성장 동력을 완성해나가는 과정이 잘 드러나도록 작성해줘.
-            3. 군민 화합을 강조하고 미래에 대한 희망적인 메시지로 마무리해줘.
-            4. 공식적이고 품격 있는 어조로 작성하되, 적절한 분량(6-10줄)으로 작성해줘.
-            5. 다른 버전들과는 차별화된 독특한 관점과 표현을 사용해줘.
+        # 파일 채로 AI에 업로드할 PDF 파일 목록
+        file_upload_paths = [
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(건설과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(경제교통과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(기획예산실)(9.8. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(농기계임대사업소).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(농업기술센터)(수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(농정과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(도시새마을과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(맑은물사업소).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(문화관광과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(민원과)(9.8. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(보건소).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(복지정책과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(사회복지과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(산림과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(수소국가산업추진단).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(안전재난과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(왕피천공원사업소).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(울진군의료원).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(원전에너지과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(인구정책과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(재무과)(9.8. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(정책홍보실)(9.11. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(체육진흥과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(총무과)(9.8. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(해양수산과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(환경위생과).pdf",
+            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(환동해산업연구원).pdf"
+        ]
 
-            발간사 내용만 작성해주고, 다른 설명은 생략해줘.
-        """
-        
-        first_prompt_parts.append(prompt_text)
-        
+        # ===== 1. 텍스트 추출 그룹 처리 =====
+        combined_pdf_text = ""
+        if text_extract_paths:
+            combined_pdf_text = combine_pdf_texts(text_extract_paths)
+
+        # ===== 2. 파일 업로드 그룹 처리 (병렬 처리 적용) =====
+        if file_upload_paths:
+            print("\nPDF 파일을 AI에 직접 업로드합니다 (병렬 처리)...")
+
+            with ThreadPoolExecutor(max_workers=27) as executor: # 예시: 5개 파일 동시 업로드
+                # 각 파일에 대해 업로드 작업을 제출
+                future_to_file = {executor.submit(upload_file_concurrently, file_path): file_path 
+                                  for file_path in file_upload_paths} 
+                
+                for future in as_completed(future_to_file):
+                    file_path = future_to_file[future]
+                    try:
+                        file_response = future.result() # 업로드 결과 가져오기
+                        if file_response:
+                            uploaded_files.append(file_response)
+                    except Exception as exc:
+                        print(f"  - '{os.path.basename(file_path)}' 업로드 중 예외 발생: {exc}")
+
+            if uploaded_files:
+                wait_for_file_processing(uploaded_files)
+                print(f"\n총 {len(uploaded_files)}개 파일 업로드 완료")
+
+        # ===== 3. 모델 초기화 =====
         try:
-            response = model.generate_content(
-                first_prompt_parts,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.8,  # 창의성을 위해 약간 높게 설정
-                    top_p=0.9,
-                    top_k=40,
-                    max_output_tokens=100000,
-                ),
+            model = genai.GenerativeModel(
+                'gemini-2.0-flash',  # 최신 모델 사용
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                }
             )
+        except Exception as e:
+            print(f"기본 모델 초기화 실패: {e}")
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            print("대체 모델 사용: gemini-1.5-flash")
+
+        year = datetime.datetime.now().year
+        month = datetime.datetime.now().month
+        quarter = ((datetime.datetime.now().month - 1) // 3 + 1) + 1
+
+        # ===== 4. 5개의 다른 발간사 생성 =====
+        foreword_variations = [
+            {
+                "focus": "경제 발전 중심",
+                "tone": "역동적이고 진취적인 어조",
+                "emphasis": "울진군의 미래 성장 동력과 경제 발전 전략"
+            },
+            {
+                "focus": "군민 화합 중심", 
+                "tone": "따뜻하고 포용적인 어조",
+                "emphasis": "군민과의 소통과 협력, 상생의 가치"
+            },
+            {
+                "focus": "희망과 비전 중심",
+                "tone": "미래지향적이고 희망찬 어조", 
+                "emphasis": "울진군의 밝은 미래와 지속가능한 발전"
+            },
+            {
+                "focus": "균형적 접근",
+                "tone": "안정적이고 신뢰감 있는 어조",
+                "emphasis": "경제, 화합, 희망이 균형잡힌 종합적 관점"
+            },
+            {
+                "focus": "혁신과 변화 중심",
+                "tone": "혁신적이고 도전적인 어조",
+                "emphasis": "새로운 변화와 혁신을 통한 울진군의 도약"
+            }
+        ]
+        
+        generated_forewords = []
+        
+        # 토큰 절약을 위해 텍스트 데이터 축약
+        summarized_text = ""
+        if combined_pdf_text:
+            summarized_text = combined_pdf_text[:500000]  # 15,000자로 제한
+            if len(combined_pdf_text) > 500000:
+                summarized_text += "\n...(추가 내용 생략)..."
+        
+        for i, variation in enumerate(foreword_variations, 1):
+            print(f"\n[{i}/5] {variation['focus']} 발간사 생성 중...")
             
-            if response.parts and hasattr(response, 'text'):
-                foreword_text = response.text.strip()
-                generated_forewords.append(foreword_text)
+            max_retries = 3
+            retry_count = 0
+            success = False
+            
+            while retry_count < max_retries and not success:
+                try:
+                    # 프롬프트 구성
+                    prompt_parts = []
+                    
+                    # 첫 번째 요청에만 파일들과 텍스트 포함
+                    # 파일은 한 번 업로드하면 모델이 기억하므로 매번 보낼 필요 없습니다.
+                    # 텍스트 요약본은 토큰 사용량이 크므로 첫 요청에만 포함.
+                    if i == 1 and retry_count == 0:
+                        if uploaded_files:
+                            prompt_parts.extend(uploaded_files)
+                        
+                        if summarized_text:
+                            prompt_parts.append(f"[참고 자료 요약]\n{summarized_text}")
+                    
+                    prompt_text = f"""
+                                    {year}년도 {quarter}분기 울진군 군정집 발간사를 작성해주세요.
+
+                                    **작성 지침:**
+                                    1. 버전 특징
+                                       - 초점: {variation['focus']}
+                                       - 어조: {variation['tone']}
+                                       - 강조점: {variation['emphasis']}
+
+                                    2. 필수 포함 내용
+                                       - '경제', '화합', '희망' 3대 키워드 자연스럽게 포함
+                                       - 울진군의 구체적 성과와 비전 제시
+                                       - 군민에 대한 감사와 격려
+                                       - {year}년 {quarter}분기 시의성 반영
+
+                                    3. 형식 요구사항
+                                       - 10줄 분량 
+                                       - 공식적이고 품격있는 문체
+                                       - 구체적이고 실질적인 내용
+                                       - 인사말로 시작, 감사/격려로 마무리
+                                       - 각 문장마다 파싱문자 (##AA,##BB,##CC,##DD,##EE,##FF,##GG,##HH,##II,##JJ,##KK,##LL, ..) 부여
+
+                                    발간사 본문만 작성하고 다른 설명은 포함하지 마세요. 그리고 키워드, 공직자 언급은 하지마세요.
+                                """
+                    
+                    prompt_parts.append(prompt_text)
+                    
+                    response = model.generate_content(
+                        prompt_parts,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=0.8,
+                            top_p=0.9,
+                            top_k=40,
+                            max_output_tokens=1200,
+                        ),
+                    )
+                    
+                    if response and hasattr(response, 'text'):
+                        foreword_text = response.text.strip()
+                        
+                        # 응답 검증
+                        if len(foreword_text) < 400:
+                            print(f"  - 경고: 생성된 텍스트가 너무 짧습니다. 재시도...")
+                            retry_count += 1
+                            continue
+                        
+                        generated_forewords.append(foreword_text)
+                        
+                        print(f"  ✓ 발간사 생성 완료 ({len(foreword_text)}자)")
+                        print(f"  미리보기: {foreword_text[:80]}...")
+                        
+                        # 한글 파일 생성
+                        template_to_use = available_templates[i-1] if i <= len(available_templates) else (available_templates[0] if available_templates else "")
+                        output_filename = f"발간사_{i:02d}_{variation['focus'].replace(' ', '_')}.hwp"
+                        output_path = os.path.join(output_dir, output_filename)
+                        
+                        file_success, message = create_hwp_document_with_foreword(
+                            template_to_use, foreword_text, output_path, i
+                        )
+                        
+                        if file_success:
+                            print(f"  ✓ 한글 파일 생성: {output_filename}")
+                        else:
+                            print(f"  ✗ 한글 파일 생성 실패: {message}")
+                        
+                        success = True
+                        
+                    else:
+                        print(f"  ✗ 응답 없음. 재시도 {retry_count+1}/{max_retries}")
+                        retry_count += 1
+                        
+                except Exception as e:
+                    error_message = str(e)
+                    print(f"  ✗ 오류 발생: {error_message[:100]}")
+                    
+                    # API 할당량 초과 처리
+                    if "429" in error_message or "quota" in error_message.lower():
+                        retry_match = re.search(r'retry in (\d+\.?\d*)', error_message)
+                        wait_time = float(retry_match.group(1)) + 5 if retry_match else 30
+                        print(f"  ⏳ API 한도 초과. {wait_time:.0f}초 대기...")
+                        time.sleep(wait_time)
+                    else:
+                        time.sleep(5)
+                    
+                    retry_count += 1
+            
+            if not success:
+                print(f"  ✗ 최종 실패. 기본 템플릿 사용")
                 
-                print(f"✅ {i}번째 발간사 생성 완료")
-                print(f"미리보기: {foreword_text[:100]}...")
+                # 실패 시 기본 템플릿 발간사
+                template_foreword = f"""존경하는 울진군민 여러분,
+
+                    {year}년 {quarter}분기를 맞이하여 군민 여러분께 인사드립니다.
+
+                    울진군은 지속가능한 경제 발전을 통해 군민 모두가 행복한 미래를 만들어가고 있습니다. 
+                    군민 여러분의 적극적인 참여와 화합으로 우리 군은 더욱 발전하고 있으며, 
+                    새로운 희망과 비전을 향해 힘차게 나아가고 있습니다.
+
+                    앞으로도 군민 여러분과 함께 더 나은 울진군을 만들어가겠습니다.
+
+                    감사합니다.
+
+                    울진군수 드림"""
                 
-                # 한글 파일 생성
-                output_filename = f"발간사_{i}_{variation['focus'].replace(' ', '_')}.hwp"
+                generated_forewords.append(template_foreword)
+                
+                # 기본 템플릿으로 파일 생성
+                template_to_use = available_templates[0] if available_templates else ""
+                output_filename = f"발간사_{i:02d}_{variation['focus'].replace(' ', '_')}_기본.hwp"
                 output_path = os.path.join(output_dir, output_filename)
                 
-                success, message = create_hwp_document_with_foreword(
-                    hwp_path, foreword_text, output_path, i
+                file_success, message = create_hwp_document_with_foreword(
+                    template_to_use, template_foreword, output_path, i
                 )
                 
-                if success:
-                    print(f"✅ 한글 파일 저장 성공: {output_filename}")
-                else:
-                    print(f"❌ 한글 파일 저장 실패: {message}")
-                
-            else:
-                print(f"❌ {i}번째 발간사 생성 실패")
-                
-        except Exception as e:
-            print(f"❌ {i}번째 발간사 생성 중 오류: {e}")
+                if file_success:
+                    print(f"  ✓ 기본 템플릿 파일 생성: {output_filename}")
+            
+            # 다음 요청 전 대기
+            if i < len(foreword_variations):
+                print("  다음 발간사 생성을 위해 대기 중...")
+                time.sleep(5)
         
-        # 요청 간 잠시 대기 (API 제한 방지)
-        if i < len(foreword_variations):
-            print("   잠시 대기 중...")
-            time.sleep(3)
-    
-    # --- 5. 결과 요약 출력 ---
-    
-    for i, foreword in enumerate(generated_forewords, 1):
-        print(f"\n--- {i}번째 발간사 ({foreword_variations[i-1]['focus']}) ---")
-        print(foreword)
-        print("-" * 50)
-
-except Exception as e:
-    print(f"\n프로그램 실행 중 오류 발생: {e}")
-    
-finally:
-    # --- 안전한 종료 ---
-    print("\n프로그램을 안전하게 종료합니다...")
-    
-    # 업로드된 파일들 정리
-    try:
+        # ===== 5. 결과 출력 =====
+        print(f"\n{'=' * 60}")
+        print("생성된 발간사 전체 내용")
+        print(f"{'=' * 60}")
+        
+        for i, foreword in enumerate(generated_forewords, 1):
+            print(f"\n[{i}번째 발간사 - {foreword_variations[i-1]['focus']}]")
+            print("-" * 40)
+            print(foreword)
+            print("-" * 40)
+        
+        print(f"\n✅ 모든 작업 완료!")
+        print(f"결과 파일 위치: {output_dir}")
+        
+    except Exception as e:
+        print(f"\n❌ 프로그램 실행 중 치명적 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    finally:
+        # ===== 정리 작업 =====
+        print("\n프로그램 정리 작업 시작...")
+        
+        # 업로드된 파일들 정리
         if uploaded_files:
-            print("업로드된 임시 파일들을 정리합니다...")
+            print("업로드된 임시 파일들을 삭제합니다...")
             for file in uploaded_files:
                 try:
                     genai.delete_file(file.name)
-                    print(f"임시 파일 삭제: {file.display_name}")
-                except Exception as delete_error:
-                    print(f"파일 삭제 실패 {file.display_name}: {delete_error}")
-    except Exception as cleanup_error:
-        print(f"파일 정리 중 오류: {cleanup_error}")
-    
-    print("프로그램 종료 완료")
+                    print(f"  ✓ 삭제: {file.display_name}")
+                except Exception as e:
+                    print(f"  ✗ 삭제 실패: {file.display_name} - {e}")
+        
+        print("\n프로그램 종료")
+        print("=" * 60)
+
+if __name__ == "__main__":
+    main()
