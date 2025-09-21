@@ -8,6 +8,7 @@ import time
 import PyPDF2
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import string
+from dotenv import load_dotenv
 
 def combine_pdf_texts(pdf_files_paths):
     """여러 PDF 파일의 텍스트를 효율적으로 합치는 함수 (추출과 정제를 한 번에 처리)"""
@@ -108,7 +109,7 @@ def create_hwp_document_with_foreword(template_path, foreword_text, output_path,
         hwp.MoveDocBegin()
         
         sections = re.split(r'##\s*([A-Z]{2,})', foreword_text)
-        print(f"{version_num}번째 질문 파싱 결과:", sections)
+        # print(f"{version_num}번째 질문 파싱 결과:", sections)
         
         content_map = {}
         if len(sections) > 1:
@@ -122,8 +123,6 @@ def create_hwp_document_with_foreword(template_path, foreword_text, output_path,
             # 전체 내용에서 첫 번째 줄(제목)만 추출
             title_only = full_content.split('\n')[0].strip()
 
-            print(f"    마커: '{marker}' -> 제목: '{title_only}'")
-
             hwp.MoveDocBegin() 
             while hwp.find(marker,direction='AllDoc'):
 
@@ -136,14 +135,14 @@ def create_hwp_document_with_foreword(template_path, foreword_text, output_path,
         hwp.MoveDocBegin() # 문서 시작으로 이동
         
         # 한/글의 '찾아 바꾸기' 기능을 정규식 모드로 실행
-        possible_markers = [f"##{char}{char}" for char in string.ascii_uppercase]
-
+        possible_markers = [f"{char}{char}" for char in string.ascii_uppercase]
         for marker in possible_markers:
             # hwp.Find는 찾으면 True, 못 찾으면 False를 반환합니다.
             # 문서 전체를 계속 반복하며 해당 마커가 더 이상 없을 때까지 찾아서 지웁니다.
             while hwp.find(marker, direction='AllDoc'):
                 # 찾은 마커를 빈 문자열로 대체 (삭제)
-                hwp.insert_text("")
+                hwp.Delete()
+                print("삭제완료")
         
         # 파일 저장
         hwp.SaveAs(output_path)
@@ -163,17 +162,22 @@ def main():
     """메인 실행 함수"""
     # 전역 변수
     uploaded_files = []
+
+    load_dotenv() 
     
     try:
         # ===== 사용자 설정 섹션 =====
         # [사용자 설정 1] 템플릿 파일들 경로 설정
-        template_base_dir = r'C:\Users\USER\Desktop\gyeongji\0919'
+        template_base_dir = r'C:\Users\wj830\Desktop\dd'
         template_paths = [
             os.path.join(template_base_dir, f"template{i}.hwpx") for i in range(1, 6)
         ]
         
+
         # [사용자 설정 2] 본인의 Gemini API 키 입력
-        API_KEY = ""  # 여기에 실제 API 키를 입력하세요
+        API_KEY = os.getenv("GEMINI_API_KEY")  # 여기에 실제 API 키를 입력하세요
+        print(f"현재 작업 폴더: {os.getcwd()}")
+        print(f".env 파일 존재 여부: {os.path.exists('.env')}")
         
         if not API_KEY:
             raise ValueError("API 키를 입력해주세요. API_KEY 변수에 실제 키를 설정하세요.")
@@ -197,7 +201,7 @@ def main():
             print("경고: 사용 가능한 템플릿이 없습니다. 새 문서로 생성합니다.")
         
         # 결과 파일들을 저장할 디렉토리 생성
-        output_dir = os.path.join(template_base_dir, f"발간사_결과_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        output_dir = os.path.join(template_base_dir, f"발간사_결과_{datetime.datetime.now().strftime('%M%S')}")
         os.makedirs(output_dir, exist_ok=True)
         print(f"\n결과 저장 경로: {output_dir}")
         
@@ -206,40 +210,40 @@ def main():
         # ===== PDF 파일 경로 설정 =====
         # 텍스트를 추출할 PDF 파일 목록
         text_extract_paths = [
-            r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 1분기).pdf",
-            r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 2분기)_압.pdf",
-            r"C:\Users\USER\Downloads\hwp\희망울진 군정집(2025년 3분기).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\희망울진 군정집(2025년 1분기).pdf",
+            # r"C:\Users\wj830\Desktop\dd\llm_data\희망울진 군정집(2025년 2분기).pdf",
+            # r"C:\Users\wj830\Desktop\dd\llm_data\희망울진 군정집(2025년 3분기).pdf",
         ]
 
         # 파일 채로 AI에 업로드할 PDF 파일 목록
         file_upload_paths = [
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(건설과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(경제교통과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(기획예산실)(9.8. 수정).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(농기계임대사업소).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(농업기술센터)(수정).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(농정과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(도시새마을과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(맑은물사업소).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(문화관광과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(민원과)(9.8. 수정).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(보건소).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(복지정책과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(사회복지과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(산림과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(수소국가산업추진단).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(안전재난과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(왕피천공원사업소).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(울진군의료원).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(원전에너지과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(인구정책과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(재무과)(9.8. 수정).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(정책홍보실)(9.11. 수정).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(체육진흥과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(총무과)(9.8. 수정).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(해양수산과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(환경위생과).pdf",
-            r"C:\Users\USER\Downloads\hwp\pdf\2026년 주요업무보고(환동해산업연구원).pdf"
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(건설과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(경제교통과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(기획예산실)(9.8. 수정).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(농기계임대사업소).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(농업기술센터)(수정).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(농정과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(도시새마을과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(맑은물사업소).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(문화관광과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(민원과)(9.8. 수정).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(보건소).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(복지정책과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(사회복지과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(산림과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(수소국가산업추진단).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(안전재난과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(왕피천공원사업소).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(울진군의료원).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(원전에너지과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(인구정책과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(재무과)(9.8. 수정).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(정책홍보실)(9.11. 수정).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(체육진흥과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(총무과)(9.8. 수정).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(해양수산과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(환경위생과).pdf",
+            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(환동해산업연구원).pdf"
         ]
 
         # ===== 1. 텍스트 추출 그룹 처리 =====
@@ -272,7 +276,7 @@ def main():
         # ===== 3. 모델 초기화 =====
         try:
             model = genai.GenerativeModel(
-                'gemini-2.0-flash',  # 최신 모델 사용
+                'gemini-2.5-flash',  # 최신 모델 사용
                 safety_settings={
                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -359,19 +363,65 @@ def main():
                                        - 강조점: {variation['emphasis']}
 
                                     2. 필수 포함 내용
-                                       - '경제', '화합', '희망' 3대 키워드 자연스럽게 포함
+                                       - 경제, 화합, 희망 3대 키워드 자연스럽게 포함 
                                        - 울진군의 구체적 성과와 비전 제시
                                        - 군민에 대한 감사와 격려
                                        - {year}년 {quarter}분기 시의성 반영
+                                       
 
                                     3. 형식 요구사항
                                        - 10줄 분량 
                                        - 공식적이고 품격있는 문체
                                        - 구체적이고 실질적인 내용
                                        - 인사말로 시작, 감사/격려로 마무리
-                                       - 각 문장마다 파싱문자 (##AA,##BB,##CC,##DD,##EE,##FF,##GG,##HH,##II,##JJ,##KK,##LL, ..) 부여
+                                       - 각 문장마다 파싱문자 ##AA,##BB,##CC,##DD,##EE,##FF,##GG,##HH,##II,##JJ,##KK,##LL, .. 부여
+                                       - 예시 ##AA 내용 ##BB 내용 ##CC 내용
 
-                                    발간사 본문만 작성하고 다른 설명은 포함하지 마세요. 그리고 키워드, 공직자 언급은 하지마세요.
+                                    4. 이전 분기 발간사 참고내용
+                                    
+                                    * 2분기 내용
+                                   - 아이를 낳고 키우기 좋은 도시는
+                                     삶의 기준을 바꾸는 우리의 소중한 선택입니다.
+                                     
+                                     울진은 지금 그런 아름다운 도시가 되기 위해
+                                     변화의 길을 힘차게 걷고 있습니다.
+                                     
+                                     아이들이 마음껏 뛰놀며 꿈을 키울 수 있는 자연과 환경,
+                                     다자녀 유공 수당 지급 등으로 아이 키우는 부담 경감,
+                                     부모가 안심하고 맡길 수 있는 다정한 돌봄,
+                                     이웃이 함께 아이를 키우는 믿음직한 공동체 울진.
+                                     
+                                     그리고 오랜 세월 울진을 지켜오신
+                                     어르신들이 존중받고, 건강한 노후를 보내실 수 있는 도시.
+                                     목욕비, 이·미용비 지원, 경로당 식사 제공, 어르신 일자리 확대 등
+                                     체감할 수 있는 맞춤형 복지를 통해
+                                     어르신들의 일상에도 따뜻한 변화를 만들어가고 있습니다.
+                                     
+                                     아이와 어르신이 함께 웃고,
+                                     모든 세대가 함께 어우러지는 복지공동체 울진.
+                                     이곳에서 아이들의 꿈이 자라고, 울진의 내일도 함께 자라납니다.
+                                     
+                                     우리 아이들과 어르신 모두에게 더 나은 울진을
+                                     물려주기 위한 노력은 오늘도, 앞으로도 계속될 것입니다.
+                                     
+                                     아름다운 내일을 꿈꾸며 나아가는
+                                     이 길에 군민 여러분의 동참과 성원을 바랍니다.
+                                     감사합니다.
+                                     
+                                     2025년 5월 울진군수 손병복
+
+                                    * 3분기 내용
+                                    군민들이 스스로 울진군의 주인이라고 생각하고,
+                                    공직자들이 군정 운영의 주인이라고 생각하며
+                                    책임감을 가지고 자신의 자리에서 최선을 다해야 할 것입니다.
+                                    
+                                    모두가 주인의식을 가질 수 있도록 하기 위해 군민들을 섬기는 군정,
+                                    공직자들이 자긍심을 가지고 일할 수 있는
+                                    환경 마련에 최선을 다하고 있습니다.
+
+                                    * 발간사 본문만 작성하고 다른 설명은 포함하지마.
+                                    * 그리고 키워드에 '', ** ** 이런표시 하지마.
+                                    * 5개 내용 다 비슷하게 적지마 
                                 """
                     
                     prompt_parts.append(prompt_text)
@@ -382,7 +432,7 @@ def main():
                             temperature=0.8,
                             top_p=0.9,
                             top_k=40,
-                            max_output_tokens=1200,
+                            max_output_tokens=5000,
                         ),
                     )
                     
