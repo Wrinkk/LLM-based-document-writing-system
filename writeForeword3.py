@@ -94,7 +94,7 @@ def create_hwp_document_with_foreword(template_path, foreword_text, output_path,
 
     hwp = None
     try:
-        hwp = pyhwpx.Hwp(visible=False)
+        hwp = pyhwpx.Hwp(visible=True)
         
         # 템플릿 파일 열기
         if os.path.exists(template_path):
@@ -109,14 +109,15 @@ def create_hwp_document_with_foreword(template_path, foreword_text, output_path,
         hwp.MoveDocBegin()
         
         
-        sections = re.split(r'##\s*([A-Z]{2,})', foreword_text)
-        # print(f"{version_num}번째 질문 파싱 결과:", sections)
+        sections = re.split(r'##\s*([A-Z][0-9])', foreword_text)
+        print(f"{version_num}번째 질문 파싱 결과:", sections)
         
         content_map = {}
         if len(sections) > 1:
             for i in range(1, len(sections), 2):
                 marker = sections[i].strip()
                 full_content = sections[i+1].strip()
+                print(full_content)
                 content_map[marker] = full_content
 
         print(f"\nHWPX 파일에 {version_num}번째 질문 파싱된 답변을 삽입합니다...")
@@ -131,20 +132,22 @@ def create_hwp_document_with_foreword(template_path, foreword_text, output_path,
                 time.sleep(0.1)
                 print(f"  - 성공: '{marker}' 위치에 제목 '{title_only}'을(를) 삽입했습니다.")
 
-                # 문서에 남아있을 수 있는 미사용 파싱 마커 (예: ##CC, ##DD 등)를 모두 찾아 삭제합니다.
-        print("\n    최종 문서에서 잔여 파싱 마커를 제거합니다...")
         hwp.MoveDocBegin() # 문서 시작으로 이동
         
         # 한/글의 '찾아 바꾸기' 기능을 정규식 모드로 실행
-        possible_markers = [f"{char}{char}" for char in string.ascii_uppercase]
-        for marker in possible_markers:
-            # hwp.Find는 찾으면 True, 못 찾으면 False를 반환합니다.
-            # 문서 전체를 계속 반복하며 해당 마커가 더 이상 없을 때까지 찾아서 지웁니다.
-            while hwp.find(marker, direction='AllDoc'):
-                # 찾은 마커를 빈 문자열로 대체 (삭제)
-                hwp.Delete()
-                print("삭제완료")
+        possible_markers = [f"{char}{num}" for char in string.ascii_uppercase for num in range(1, 10)]
         
+
+        for marker in possible_markers:
+            while hwp.find(marker, direction='AllDoc'):
+                hwp.Erase()
+                hwp.DeleteLine()
+                hwp.DeleteLine()
+
+        while hwp.find("#",direction='AllDoc'):
+            hwp.Erase()
+
+
         # 파일 저장
         hwp.SaveAs(output_path)
         
@@ -169,9 +172,9 @@ def main():
     try:
         # ===== 사용자 설정 섹션 =====
         # [사용자 설정 1] 템플릿 파일들 경로 설정
-        template_base_dir = r'C:\Users\wj830\Desktop\dd'
+        template_base_dir = r'C:\Users\USER\Desktop\llm\LLM-based-document-writing-system\template'
         template_paths = [
-            os.path.join(template_base_dir, f"template{i}.hwpx") for i in range(1, 6)
+            os.path.join(template_base_dir, f"template1.hwpx")
         ]
         
               # [사용자 설정 3] API 실패 시 사용할 5가지 기본 발간사 내용 (여기를 채워주세요)
@@ -187,73 +190,20 @@ def main():
                ##HH  앞으로도 지속적인 경제 발전 전략을 통해 군민 모두가 풍요로운 미래를 누리도록 최선을 다하겠습니다. 
                ##II 늘 함께해주시는 군민 여러분께 진심으로 감사드립니다. 
                ##JJ 다가오는 새해에도 울진의 밝은 미래를 함께 만들어 주시기를 바랍니다.""",
-            
-            # 2번째 발간사 (군민 화합 중심) 실패 시 사용될 내용
-            """##AA 존경하는 울진군민 여러분, 2025년 한 해를 마무리하며 희망찬 새해를 준비하는 4분기 군정집을 발간합니다.
-               ##BB 올 한 해 울진은 군민 여러분의 지혜와 역량이 한데 모여 더욱 굳건한 공동체로 성장했습니다.
-               ##CC 어려운 여건 속에서도 흔들림 없는 경제 기반을 다지고자 끊임없이 노력하여 미래 성장 동력을 확보했습니다.
-               ##DD 이 모든 과정에서 서로를 보듬고 아끼는 화합의 정신은 우리 군이 직면한 여러 과제를 슬기롭게 극복하는 원동력이 되었습니다.
-               ##EE 군민과 함께 소통하며 만들어 온 정책들은 울진의 삶의 질을 높이고 내일의 희망을 키워냈습니다.
-               ##FF 저희는 앞으로도 군민의 삶을 최우선에 두고, 상생의 가치를 실현하는 따뜻하고 포용적인 군정을 펼쳐나가겠습니다.
-               ##GG 2026년에도 군민 여러분과 손잡고 더 큰 울진의 발전과 도약을 위한 비전을 향해 힘껏 나아가겠습니다.
-               ##HH 모든 세대가 함께 웃고, 미래를 꿈꿀 수 있는 행복한 울진을 만들기 위한 여정에 변함없는 동참을 부탁드립니다.
-               ##II 군민 여러분의 깊은 관심과 따뜻한 격려에 진심으로 감사드리며, 가정에 늘 건강과 행복이 가득하시기를 기원합니다.
-               ##JJ 감사합니다.""",
-                           
-            # 3번째 발간사 (희망과 비전 중심) 실패 시 사용될 내용
-            """##AA 존경하는 울진군민 여러분, 2025년 한 해를 마무리하는 제4분기 군정집을 발간하게 되어 매우 뜻깊게 생각합니다.
-               ##BB 올 한 해 군민 여러분과 함께 일궈온 값진 노 력들이 풍성한 결실을 맺으며 희망찬 울진의 미래를 밝히고 있습니다.
-               ##CC 특히, 지속가능한 경제 발전을 위한 새로운 성장 동력 확보는 물론, 지역 경제에 활력을 불어넣기 위한 노력을 멈추지 않았습니다.
-               ##DD 이 모든 과정 속에서 군민들의 하나 된 화합과 참여는 울진 발전의 가장 든든한 초석이 되었습니다. 
-               ##EE 우리는 더 나은 내일을 향한 분명한 비전을 가지고, 모두가 살기 좋은 울진을 만들기 위한 담대한 도전을 이어가고 있습니다.
-               ##FF 청정 자연을 기반으로 한 친환경 성장과 혁신적인 정책을 통해 울진의 지속가능한 발전 모델을 정립해 나갈 것입니다.
-               ##GG 군민 한 분 한 분의 삶에 따뜻한 희망이 스며들고, 모두가 행복을 누리는 풍요로운 울진을 향해 나아가겠습니다. 
-               ##HH 지난 한 해 동안 변함없는 사랑과 성원을 보내주신 군민 여러분께 진심으로 감사드립니다. 
-               ##II 다가오는 새해에도 군민 여러분과 함께 더 큰 도약을 이루어낼 수 있도록 최선을 다하겠습니다. 
-               ##JJ 군민 여러분의 가정에 늘 건강과 행복이 가득하시기를 기원합니다.""",
-               
-            # 4번째 발간사 (균형적 접근) 실패 시 사용될 내용
-            """##AA 존경하는 울진군민 여러분, 2025년 한 해를 마무리하는 4분기 군정집을 발간하며 인사드립니다. 
-               ##BB 올 한 해도 변함없이 군정에 깊은 관심과 성원을 보내주신 군민 여러분께 진심으로 감사드립니다. 
-               ##CC 견고한 지역 경제 기반을 다지기 위한 노력은 가시적인 성과로 이어져, 지속 가능한 성장의 발판을 마련하였습니다.
-               ##DD 군민의 화합된 힘은 크고 작은 어려움을 슬기롭게 극복하고, 서로를 배려하는 공동체 정신을 더욱 굳건히 하는 원동력이 되었습니다. 
-               ##EE 우리는 미래 세대가 더 나은 삶을 꿈꿀 수 있는 희망찬 울진을 만들기 위해 끊임없이 고민하고 실천해왔습니다. 
-               ##FF 해양 관광 활성화부터 스마트 농업 혁신, 그리고 품격 있는 문화생활에 이르기까지, 균형 잡힌 발전을 위해 다각적인 노력을 기울였습니다. 
-               ##GG 다가오는 새해에는 더 큰 도약과 변화를 향해 나아가며, 군민 한 분 한 분의 삶이 더욱 풍요로워지도록 최선을 다하겠습니다.
-               ##HH 울진의 밝은 미래를 향한 여정에 늘 함께해주시는 군민 여러분의 지혜와 참여에 깊이 감사드립니다. 
-               ##II 앞으로도 변함없는 사랑과 성원을 부탁드리며, 가정에 늘 건강과 행복이 가득하시기를 기원합니다.""",
-               
-            # 5번째 발간사 (혁신과 변화 중심) 실패 시 사용될 내용
-            """##AA 존경하는 울진군민 여러분, 2025년 한 해를 마무리하며 새 시대를 향한 도약의 의지를 담은 군정집을 선보입니다.
-               ##BB 올 한 해 울진군은 혁신과 변화를 기치로 내걸고, 미래를 향한 과감한 도전을 멈추지 않았습니다.
-               ##CC 이러한 노력들이 결실을 맺어 지역 경제에 활력을 불어넣고, 새로운 성장 동력을 확보하는 데 주력했습니다.
-               ##DD 특히, 군민 모두가 한마음으로 뜻을 모아 이룬 화합의 가치는 어떠한 난관도 극복할 수 있는 굳건한 울진의 힘이 되었습니다.
-               ##EE 다가올 새해에는 스마트 도시 기반 구축과 미래 신산업 육성을 통해 지속 가능한 발전의 희망찬 비전을 현실로 만들어갈 것입니다.
-               ##FF 우리는 변화를 두려워하지 않고, 더 나은 울진의 내일을 위한 혁신적 시도를 계속해 나갈 것입니다.
-               ##GG 군민 여러분의 적극적인 참여와 성원이 있었기에 오늘의 성과가 가능했으며, 이는 미래를 향한 가장 강력한 추진력입니다.
-               ##HH 앞으로도 군민의 삶의 질 향상과 울진의 위상 강화를 위해 모든 역량을 집중할 것을 약속드립니다.
-               ##II 뜨거운 열정으로 함께해 주신 군민 여러분께 진심으로 감사드리며, 새해에도 변함없는 지지와 격려를 부탁드립니다.
-               ##JJ 희망찬 미래를 향한 울진의 여정에 동참해 주시길 바랍니다.""",
+
         ]
 
 
-        # [사용자 설정 2] 본인의 Gemini API 키 입력
-        API_KEY = os.getenv("GEMINI_API_KEY")  # 여기에 실제 API 키를 입력하세요
+
+        API_KEY = os.getenv('GENAI_API_KEY') 
         
         if not API_KEY:
             raise ValueError("API 키를 입력해주세요. API_KEY 변수에 실제 키를 설정하세요.")
         
-        # ===== 초기 설정 및 검증 =====
-        print("=" * 60)
-        print("울진군 발간사 생성 프로그램 시작")
-        print("=" * 60)
-        
         # 템플릿 파일들 존재 확인
-        print("\n템플릿 파일들을 확인합니다...")
         available_templates = []
         for i, template_path in enumerate(template_paths, 1):
             if os.path.exists(template_path):
-                print(f"  ✓ template{i}.hwp 파일 존재")
                 available_templates.append(template_path)
             else:
                 print(f"  ✗ template{i}.hwp 파일 없음: {template_path}")
@@ -271,43 +221,82 @@ def main():
         # ===== PDF 파일 경로 설정 =====
         # 텍스트를 추출할 PDF 파일 목록
         text_extract_paths = [
-            r"C:\Users\wj830\Desktop\dd\llm_data\희망울진 군정집(2025년 1분기).pdf",
-            # r"C:\Users\wj830\Desktop\dd\llm_data\희망울진 군정집(2025년 2분기).pdf",
-            # r"C:\Users\wj830\Desktop\dd\llm_data\희망울진 군정집(2025년 3분기).pdf",
+            # r"C:\Users\USER\Downloads\hwp\압축\희망울진 군정집(2025년 1분기).pdf",
+            # r"C:\Users\USER\Downloads\hwp\압축\희망울진 군정집(2025년 2분기).pdf",
+            # r"C:\Users\USER\Downloads\hwp\압축\희망울진 군정집(2025년 3분기).pdf",
         ]
 
         # 파일 채로 AI에 업로드할 PDF 파일 목록
         file_upload_paths = [
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(건설과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(경제교통과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(기획예산실)(9.8. 수정).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(농기계임대사업소).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(농업기술센터)(수정).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(농정과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(도시새마을과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(맑은물사업소).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(문화관광과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(민원과)(9.8. 수정).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(보건소).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(복지정책과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(사회복지과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(산림과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(수소국가산업추진단).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(안전재난과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(왕피천공원사업소).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(울진군의료원).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(원전에너지과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(인구정책과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(재무과)(9.8. 수정).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(정책홍보실)(9.11. 수정).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(체육진흥과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(총무과)(9.8. 수정).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(해양수산과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(환경위생과).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2026년 주요업무보고(환동해산업연구원).pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2023년도 시정연설문.pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2025년 시정연설.pdf",
-            r"C:\Users\wj830\Desktop\dd\llm_data\2024년도 시정연설문(최종).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(건설과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(경제교통과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(기획예산실)(9.8. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(농기계임대사업소).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(농업기술센터)(수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(농정과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(도시새마을과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(맑은물사업소).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(문화관광과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(민원과)(9.8. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(보건소).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(복지정책과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(사회복지과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(산림과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(수소국가산업추진단).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(안전재난과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(왕피천공원사업소).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(울진군의료원).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(원전에너지과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(인구정책과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(재무과)(9.8. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(정책홍보실)(9.11. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(체육진흥과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(총무과)(9.8. 수정).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(해양수산과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(환경위생과).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2026년 주요업무보고(환동해산업연구원).pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2023년도 시정연설문.pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2025년 시정연설.pdf",
+            r"C:\Users\USER\Downloads\hwp\압축\2024년도 시정연설문(최종).pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2022년 10월 정례 조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2022년 12월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2022년 9월 월례 조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 10월 정례조회 월례사 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 10월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 11월 정례조회 월례사 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 11월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 2월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 3월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 4월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 5월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 6월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 8월 정례조회 월례사 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 8월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 9월 정례조회 월례사 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 9월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2023년 송년사(최종).pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 10월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 11월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 12월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 2월 정례조회 월례사 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 2월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 3월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 4월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 5월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 6월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 8월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 9월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 송년사.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2024년 신년사(최종).pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2025년 3월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2025년 4월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2025년 5월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2025년 6월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2025년 7월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2025년 8월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2025년 9월 정례조회 훈시 1부.pdf",
+            r"C:\Users\USER\Downloads\hwp\민선8기 분량정리\pdf\2025년 신년사.pdf",
+
 
         ]
 
@@ -318,10 +307,8 @@ def main():
 
         # ===== 2. 파일 업로드 그룹 처리 (병렬 처리 적용) =====
         if file_upload_paths:
-            print("\nPDF 파일을 AI에 직접 업로드합니다 (병렬 처리)...")
 
-            with ThreadPoolExecutor(max_workers=27) as executor: # 예시: 5개 파일 동시 업로드
-                # 각 파일에 대해 업로드 작업을 제출
+            with ThreadPoolExecutor(max_workers=27) as executor: 
                 future_to_file = {executor.submit(upload_file_concurrently, file_path): file_path 
                                   for file_path in file_upload_paths} 
                 
@@ -354,37 +341,16 @@ def main():
             model = genai.GenerativeModel('gemini-1.5-flash')
             print("대체 모델 사용: gemini-1.5-flash")
 
-        year = datetime.datetime.now().year
+        year = datetime.datetime.now().year + 1
         month = datetime.datetime.now().month
         quarter = ((datetime.datetime.now().month - 1) // 3 + 1) + 1
 
-        # ===== 4. 5개의 다른 발간사 생성 =====
         foreword_variations = [
             {
                 "focus": "경제 발전 중심",
                 "tone": "역동적이고 진취적인 어조",
                 "emphasis": "울진군의 미래 성장 동력과 경제 발전 전략"
-            },
-            # {
-            #     "focus": "군민 화합 중심", 
-            #     "tone": "따뜻하고 포용적인 어조",
-            #     "emphasis": "군민과의 소통과 협력, 상생의 가치"
-            # },
-            # {
-            #     "focus": "희망과 비전 중심",
-            #     "tone": "미래지향적이고 희망찬 어조", 
-            #     "emphasis": "울진군의 밝은 미래와 지속가능한 발전"
-            # },
-            # {
-            #     "focus": "균형적 접근",
-            #     "tone": "안정적이고 신뢰감 있는 어조",
-            #     "emphasis": "경제, 화합, 희망이 균형잡힌 종합적 관점"
-            # },
-            # {
-            #     "focus": "혁신과 변화 중심",
-            #     "tone": "혁신적이고 도전적인 어조",
-            #     "emphasis": "새로운 변화와 혁신을 통한 울진군의 도약"
-            # }
+            }
         ]
         
         generated_forewords = []
@@ -392,12 +358,11 @@ def main():
         # 토큰 절약을 위해 텍스트 데이터 축약
         summarized_text = ""
         if combined_pdf_text:
-            summarized_text = combined_pdf_text[:500000]  # 15,000자로 제한
+            summarized_text = combined_pdf_text[:500000]  
             if len(combined_pdf_text) > 500000:
                 summarized_text += "\n...(추가 내용 생략)..."
         
         for i, variation in enumerate(foreword_variations, 1):
-            print(f"\n[{i}/5] {variation['focus']} 발간사 생성 중...")
             
             max_retries = 3
             retry_count = 0
@@ -408,9 +373,6 @@ def main():
                     # 프롬프트 구성
                     prompt_parts = []
                     
-                    # 첫 번째 요청에만 파일들과 텍스트 포함
-                    # 파일은 한 번 업로드하면 모델이 기억하므로 매번 보낼 필요 없습니다.
-                    # 텍스트 요약본은 토큰 사용량이 크므로 첫 요청에만 포함.
                     if i == 1 and retry_count == 0:
                         if uploaded_files:
                             prompt_parts.extend(uploaded_files)
@@ -419,85 +381,36 @@ def main():
                             prompt_parts.append(f"[참고 자료 요약]\n{summarized_text}")
                     
                     prompt_text = f"""
-                                    {year}년도 {quarter}분기 울진군 군정집 발간사를 작성해주세요.
+                                    {year}년도 울진군 시장연설문을 작성해주세요. 60갑자 제대로 확인해서 적어주세요.
 
-                                    **작성 지침:**
-                                    1. 버전 특징
-                                       - 초점: {variation['focus']}
-                                       - 어조: {variation['tone']}
-                                       - 강조점: {variation['emphasis']}
+                                    당신은 '화합으로 새로운 희망울진'을 군정 비전으로 삼고 있는 손병복 울진군수입니다. 군민과 군의회를 존중하며, 울진의 미래에 대한 확신과 비전을 담아 연설문을 작성해야 합니다.
+
+                                    * 작성 지침
+                                    2025년에 열리는 울진군의회 제2차 정례회에서 '2026년도 예산안'을 제출하며 발표할 시정연설문을 작성해 주세요.
+                                    대상: 울진 군민과 군의회 의원
+                                    목적: 2025년의 주요 군정 성과를 보고하고, 이를 바탕으로 수립된 2026년도 군정 운영 방향과 핵심 사업들을 설명하여 예산안에 대한 이해와 협조를 구하는 것입니다.
 
                                     2. 필수 포함 내용
-                                       - 경제, 화합, 희망 3대 키워드 자연스럽게 포함 
+                                       - 경제, 화합, 희망 중심의 내용
                                        - 울진군의 구체적 성과와 비전 제시
                                        - 군민에 대한 감사와 격려
-                                       - {year}년 {quarter}분기 시의성 반영
-                                       
+                                        '2026년 주요 업무계획' 보고서를 핵심 자료로 활용
+                                        '2025년 주요성과'은 지난 성과와 성과에 대한 상세 내용을 설명
+                                        '2026년 주요 업무 추진계획' 부분은 내년도 계획을 설명
+                                        - 공백포함 15,000자 이상 20,000자 이내으로 작성
 
                                     3. 형식 요구사항
                                        - 공식적이고 품격있는 문체
-                                       - 주요사업 내용에 대해 구체적이고 실질적인 내용
-                                        '2026년 주요 업무계획' 보고서를 핵심 자료로 활용하여 작성해야 합니다.
-                                        '2025년 주요성과' 부분은 지난 성과를 설명하는 데 사용하세요.
-                                        '2026년 주요 업무 추진계획' 부분은 내년도 계획을 설명하는 데 사용하세요.
-                                       - 연설문의 전체적인 구조, 문체, 어조는 함께 첨부된 2023년, 2024년, 2025년 시정연설문을 참고하여 일관성을 유지해 주세요.
-                                       -  어조 및 형식(Tone & Format)
+                                       - 주요사업 내용에 대해 구체적 설명하고, 어떻게 진행했는지 심도있는 내용으로 작성
+                                       - 강조할때는 '**' 문자 말고 '##'로 강조    
+                                       - 각 문단마다 파싱문자 ##A1~A9,##B1~B9,##C1~C9,##D1~D9, ... 부여 (하나의 알파벳에 대해 숫자는 1부터 9까지 순서대로, 빠짐없이 모두 사용)
+                                       - 연설문의 전체적인 구조, 문체, 어조는 함께 첨부된 2023년, 2024년, 2025년 시정연설문을 참고하여 일관성을 유지
+                                       - 어조 및 형식(Tone & Format)
                                           어조: 군민과 군의회를 존중하는 정중하고 진솔한 어조를 사용하되, 미래 비전에 대해서는 자신감 있고 희망적인 어조를 사용해 주세요.
-
-                                          문체: 간결하면서도 격식을 갖춘 문어체로 작성해 주세요.
-
+                                          문체: 격식을 갖춘 문어체로 작성해 주세요.
                                           사자성어: 연설의 마지막 부분에 군정 운영의 의지를 나타낼 수 있는 적절한 사자성어를 포함해 주세요.
 
-                                       - 각 문장마다 파싱문자 ##AA,##BB,##CC,##DD,##EE,##FF,##GG,##HH,##II,##JJ,##KK,##LL, .. 부여
-
-                                       - 예시 ##AA 내용 ##BB 내용 ##CC 내용
-
-                                    4. 이전 분기 발간사 참고내용
-                                    
-                                    * 2분기 내용
-                                   - 아이를 낳고 키우기 좋은 도시는
-                                     삶의 기준을 바꾸는 우리의 소중한 선택입니다.
-                                     
-                                     울진은 지금 그런 아름다운 도시가 되기 위해
-                                     변화의 길을 힘차게 걷고 있습니다.
-                                     
-                                     아이들이 마음껏 뛰놀며 꿈을 키울 수 있는 자연과 환경,
-                                     다자녀 유공 수당 지급 등으로 아이 키우는 부담 경감,
-                                     부모가 안심하고 맡길 수 있는 다정한 돌봄,
-                                     이웃이 함께 아이를 키우는 믿음직한 공동체 울진.
-                                     
-                                     그리고 오랜 세월 울진을 지켜오신
-                                     어르신들이 존중받고, 건강한 노후를 보내실 수 있는 도시.
-                                     목욕비, 이·미용비 지원, 경로당 식사 제공, 어르신 일자리 확대 등
-                                     체감할 수 있는 맞춤형 복지를 통해
-                                     어르신들의 일상에도 따뜻한 변화를 만들어가고 있습니다.
-                                     
-                                     아이와 어르신이 함께 웃고,
-                                     모든 세대가 함께 어우러지는 복지공동체 울진.
-                                     이곳에서 아이들의 꿈이 자라고, 울진의 내일도 함께 자라납니다.
-                                     
-                                     우리 아이들과 어르신 모두에게 더 나은 울진을
-                                     물려주기 위한 노력은 오늘도, 앞으로도 계속될 것입니다.
-                                     
-                                     아름다운 내일을 꿈꾸며 나아가는
-                                     이 길에 군민 여러분의 동참과 성원을 바랍니다.
-                                     감사합니다.
-                                     
-                                     2025년 5월 울진군수 손병복
-
-                                    * 3분기 내용
-                                    군민들이 스스로 울진군의 주인이라고 생각하고,
-                                    공직자들이 군정 운영의 주인이라고 생각하며
-                                    책임감을 가지고 자신의 자리에서 최선을 다해야 할 것입니다.
-                                    
-                                    모두가 주인의식을 가질 수 있도록 하기 위해 군민들을 섬기는 군정,
-                                    공직자들이 자긍심을 가지고 일할 수 있는
-                                    환경 마련에 최선을 다하고 있습니다.
-
-                                    * 발간사 본문만 작성하고 다른 설명은 포함하지마.
-                                    * 그리고 키워드에 '', ** ** 이런표시 하지마.
-                                    * 5개 내용 다 비슷하게 적지마 
-                                """
+                                    """
                     
                     prompt_parts.append(prompt_text)
                     
@@ -507,7 +420,7 @@ def main():
                             temperature=0.8,
                             top_p=0.9,
                             top_k=40,
-                            max_output_tokens=5000,
+                            max_output_tokens=70000,
                         ),
                     )
                     
@@ -515,7 +428,7 @@ def main():
                         foreword_text = response.text.strip()
                         
                         # 응답 검증
-                        if len(foreword_text) < 400:
+                        if len(foreword_text) < 5000:
                             print(f"  - 경고: 생성된 텍스트가 너무 짧습니다. 재시도...")
                             retry_count += 1
                             continue
@@ -527,7 +440,7 @@ def main():
                         
                         # 한글 파일 생성
                         template_to_use = available_templates[i-1] if i <= len(available_templates) else (available_templates[0] if available_templates else "")
-                        output_filename = f"발간사_{i:02d}_{variation['focus'].replace(' ', '_')}.hwp"
+                        output_filename = f"{year}년_시장연설문.hwp"
                         output_path = os.path.join(output_dir, output_filename)
                         
                         file_success, message = create_hwp_document_with_foreword(
@@ -561,7 +474,6 @@ def main():
                     retry_count += 1
             
             if not success:
-                print(f"  ✗ 최종 실패. 하드코딩된 기본 발간사를 사용합니다.")
                 
                 # 실패 시, 해당 순서(i)에 맞는 기본 발간사 사용
                 template_foreword = fallback_forewords[i-1] # i는 1부터 시작하므로 인덱스는 i-1
@@ -600,12 +512,10 @@ def main():
         print(f"{'=' * 60}")
         
         for i, foreword in enumerate(generated_forewords, 1):
-            print(f"\n[{i}번째 발간사 - {foreword_variations[i-1]['focus']}]")
             print("-" * 40)
             print(foreword)
             print("-" * 40)
         
-        print(f"\n✅ 모든 작업 완료!")
         print(f"결과 파일 위치: {output_dir}")
         
     except Exception as e:
@@ -626,7 +536,7 @@ def main():
                     print(f"  ✓ 삭제: {file.display_name}")
                 except Exception as e:
                     print(f"  ✗ 삭제 실패: {file.display_name} - {e}")
-        
+
         print("\n프로그램 종료")
         print("=" * 60)
 
